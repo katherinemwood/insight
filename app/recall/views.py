@@ -56,19 +56,12 @@ def recall_output():
   #pull 'brand' from input field and store it
   brand = request.args.get('brand')
     #just select the Cesareans  from the birth dtabase for the month that the user inputs
-  query = "SELECT recallid, title, hazards_name, description FROM recalls WHERE title LIKE '%" + brand + "%'"
+  query = "SELECT * FROM labeled_demo_sample"
   #print(query)
   query_results=pd.read_sql_query(query,con)
   #print(query_results)
-  the_result = ''
-  recalls = []
-  for i in range(0,query_results.shape[0]):
-        recalls.append(dict(recallid=query_results.iloc[i]['recallid'], 
-                    title=query_results.iloc[i]['title'], 
-                    hazards_name=query_results.iloc[i]['hazards_name'], 
-                    description=query_results.iloc[i]['description']))
-        the_result = ModelIt(brand,recalls)
-  return render_template("model_output.html", recalls = recalls, the_result = the_result)
+  the_result = ModelIt(brand,query_results)
+  return render_template("model_output.html", the_result = the_result)
 
 # @app.route('/output')
 # def recall_output():

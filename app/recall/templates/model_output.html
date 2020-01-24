@@ -81,21 +81,20 @@
 <main role="main" class="container">
 
   <div class="starter-template">
-    <h1>Bootstrap starter template</h1>
-    <p class="lead">Use this document as a way to quickly start any new project.<br> All you get is this text and a mostly barebones HTML document.</p>
+    <h1>Model Results</h1>
+    <p class="lead">Model Performance on Test<br> These numbers likely to be inflated.</p>
   </div>
 
       <div class="container">
+        <p>Running model on small subset of auto-labeled data</p>
+        <p> About 850 rows from a few brands </p>
+        <p> tf-idf encoding + logistic regression to predict "recall" or "no recall" </p>
       <div class="starter-template">
-        <h3>Another Result:</h3>
-        <p class="lead">Model Results<br>There were {{the_result}} recalls for this brand.</p>
       </div>
 
     <table class="table table-hover">
-    <tr><th>recallid</th><th>title</th><th>hazards_name</th><th>description</th></tr>
-    {% for recall in recalls %}
-    <tr><td>{{ recall['recallid'] }}</td><td>{{ recall['title']}}</td><td> {{ recall['hazards_name'] }}</td><td> {{ recall['description'] }}</td></tr>
-    {% endfor %}
+    <tr><th>F1 Score</th><th>Accuracy</th><th>AUC</th></tr>
+    <tr><td>{{ the_result['F1'] }}</td><td>{{ the_result['Accuracy'] }}</td><td> {{ the_result['AUC'] }}</td></tr>
     </table>
 
      <script src="https://code.jquery.com/jquery-1.10.2.min.js"></script>
