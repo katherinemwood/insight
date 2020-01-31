@@ -7,7 +7,7 @@
     <meta name="description" content="">
     <meta name="author" content="Mark Otto, Jacob Thornton, and Bootstrap contributors">
     <meta name="generator" content="Jekyll v3.8.6">
-    <title>Starter Template · Bootstrap</title>
+    <title></title>
 
     <link rel="canonical" href="https://getbootstrap.com/docs/4.4/examples/starter-template/">
 
@@ -45,9 +45,9 @@
     <link href="{{ url_for('static', filename='stylesheets/starter-template.css') }}" rel="stylesheet">
   </head>
   <body>
-<!--     <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top">
-  <a class="navbar-brand" href="#">Navbar</a>
-  <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarsExampleDefault" aria-controls="navbarsExampleDefault" aria-expanded="false" aria-label="Toggle navigation">
+    <nav class="navbar navbar-expand-md navbar-dark bg-dark fixed-top">
+  <a class="navbar-brand" href="#">PRecall</a>
+ <!--  <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarsExampleDefault" aria-controls="navbarsExampleDefault" aria-expanded="false" aria-label="Toggle navigation">
     <span class="navbar-toggler-icon"></span>
   </button>
 
@@ -75,26 +75,27 @@
       <input class="form-control mr-sm-2" type="text" placeholder="Search" aria-label="Search">
       <button class="btn btn-secondary my-2 my-sm-0" type="submit">Search</button>
     </form>
-  </div>
-</nav> -->
+  </div>-->
+</nav>
 
 <main role="main" class="container">
 
   <div class="starter-template">
-    <h1>Model Results</h1>
-    <p class="lead">Model Performance on Test<br> These numbers likely to be inflated.</p>
+    <h1>Search Results</h1>
+    <p class="lead">Here's what turned up for "{{results['brand']}} {{results['product']}} {{results['model']}}"</p>
   </div>
 
       <div class="container">
-        <p>Running model on small subset of auto-labeled data</p>
-        <p> About 850 rows from a few brands </p>
-        <p> tf-idf encoding + logistic regression to predict "recall" or "no recall" </p>
+        <p> Your search yielded {{results['num_complaints'] }} related complaints.</p>
+        <p> The model estimates the chance of recall at <strong>{{results['recall_proba']}}</strong> for this product.</p>
       <div class="starter-template">
       </div>
 
     <table class="table table-hover">
-    <tr><th>F1 Score</th><th>Accuracy</th><th>AUC</th></tr>
-    <tr><td>{{ the_result['F1'] }}</td><td>{{ the_result['Accuracy'] }}</td><td> {{ the_result['AUC'] }}</td></tr>
+    <tr><th>Product Description</th><th>Manufacturer</th><th>Brand</th><th>Model</th><th>Incident Description</th></tr>
+    {% for complaint in results['complaints'] %}
+    <tr><td>{{ complaint['prod_desc'] }}</td><td>{{ complaint['manufacturer'] }}</td><td> {{ complaint['brand'] }}</td><td> {{ complaint['model_num'] }}</td><td> {{ complaint['incident_desc'] }}</td></tr>
+    {% endfor %}
     </table>
 
      <script src="https://code.jquery.com/jquery-1.10.2.min.js"></script>
