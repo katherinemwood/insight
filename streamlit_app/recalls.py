@@ -20,7 +20,7 @@ def find_search_match(data, string, term_type, threshold=80):
         results = min(len(rank[rank['score'] >= threshold]), 5)
         selection = rank[rank['score'] >= threshold].loc[0:results, :]
     if selection.empty:
-        return("No match.")
+        return('')
     return(embedded_data[embedded_data[term_type].apply(lambda x: x.lower() in 
                                                         [s.lower() for s in selection['field'] if isinstance(s, str)]
                                                        if isinstance(x, str) else False)])
@@ -51,18 +51,26 @@ if st.sidebar.button('Find Recall Information'):
     prog_text.text('Seaching database...')
 
     query = "SELECT * FROM labeled_data"
-    query_results = pd.read_sql_query(query,con)
-    embeddings = np.concatenate([np.load('embedding_chunks/'+chunk) for chunk in os.listdir('embedding_chunks')], axis = 0)
+    #query_results = pd.read_sql_query(query,con)
+    query_results = pd.read_csv('../labeled_data.csv', encoding="ISO-8859-1", dtype='object')
+    query_results.columns = [c.lower() for c in query_results.columns] #postgres doesn't like capitals or spaces
+    query_results.columns = [c.replace(' ', '_') for c in query_results.columns]
+    query_results.columns = [c.replace('(', '') for c in query_results.columns]
+    query_results.columns = [c.replace(')', '') for c in query_results.columns]
+    sort_key = lambda x: int(x.split('-')[0][6:])
+    embeddings = np.concatenate([np.load('embedding_chunks/'+chunk) for chunk in
+        sorted(os.listdir('embedding_chunks'), key=sort_key)], axis = 0)
+
     embedded_data = pd.concat([query_results.iloc[range(len(embeddings)), :], pd.DataFrame(embeddings)], axis=1)
     embedded_data.columns = embedded_data.columns.astype(str)
 
     prog.progress(5)
     prog_text.text('Searching for related products...')
     product_pass = find_search_match(embedded_data, product_input, 'clean_product') if product_input else embedded_data
-    prog.progress(33)
+    prog.progress(45)
     prog_text.text('Searching for related brands...')
     brand_pass = find_search_match(product_pass, brand_input, 'clean_brand') if brand_input else product_pass
-    prog.progress(66)
+    prog.progress(85)
     prog_text.text('Searching for related models...')
     model_pass = find_search_match(brand_pass, model_input, 'model_name_or_number', 100) if model_input else brand_pass
     prog.progress(100)
@@ -78,6 +86,12 @@ if st.sidebar.button('Find Recall Information'):
             recall_proba = np.mean(logreg_model.predict_proba(model_pass[[str(i) for i in list(range(1, 769))]])[:, 1])
         else:
             recall_proba = 1
+            assoc_recall = []
+            if len(set(model_pass['0'].values)) == 1:
+                recall_query = "SELECT * FROM recalls WHERE recallid = %s" % model_pass.iloc[0,:].loc['0'].astype(str)
+                assoc_recall = pd.read_sql_query(recall_query, con)
+                display_recall = assoc_recall.loc[:, ('recalldate', 'title', 'description', 'consumercontact')]
+                display_recall.columns = ['Date', 'Title', 'Details', 'Contact']
 
         display_complaints = model_pass.loc[:, ('product_description',   'manufacturer_/_importer_/_private_labeler_name', 'brand', 
         'model_name_or_number', 'incident_description')]
@@ -88,7 +102,13 @@ if st.sidebar.button('Find Recall Information'):
 
     st.subheader('Search Results')
     st.write('Your search yielded %d related complaints.' % len(model_pass))
-    st.write('The model estimates the chance of recall at {0:.0f}% for this product.'.format(recall_proba*100))
+    if recall_proba < 1:
+        st.write('The model estimates the chance of recall at {0:.0f}% for this product.'.format(recall_proba*100))
+    else:
+        st.write('This product has been recalled.')
+        if not isinstance(assoc_recall, list):
+            st.subheader('Associated Recall')
+            st.table(display_recall)
 
     st.subheader('Associated Complaints')
     st.table(display_complaints)
