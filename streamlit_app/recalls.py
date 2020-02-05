@@ -1,36 +1,88 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os, pickle, sklearn, psycopg2
+import os, pickle, sklearn, re, psycopg2, scipy
+from nltk.stem.snowball import SnowballStemmer
 from fuzzywuzzy import fuzz, process
 from sklearn.linear_model import LogisticRegression
 from sqlalchemy import create_engine
 from sqlalchemy_utils import database_exists, create_database
 
-@st.cache
-def find_search_match(data, string, term_type, threshold=80):
-    match = [s.lower() for s in list(set(embedded_data[term_type].values)) if isinstance(s, str)]
-    candidate_products = pd.DataFrame(process.extract(string.lower(), match, 
-                                                       scorer=fuzz.token_set_ratio),
-                                      columns=['field', 'score'])
-    rank = candidate_products.sort_values(by='score', ascending=False)
-    if len(rank[rank['score'] == 100]) >= 5:
-        selection = rank[rank['score'] == 100]
+def fuzzy_match(reference_strings, comparison_strings, threshold=80, match_requirements='both'):
+    #Fuzzy string match
+    if isinstance(comparison_strings, str):
+        comparison_strings = comparison_strings.strip('][').replace("'", '').split(', ')
+    if not isinstance(comparison_strings, list):
+        return 0
+    comparison_strings = [string.lower() for string in comparison_strings]
+    if not comparison_strings:
+        return 0
+    fuzzy_match = (pd.Series(list(zip(*process.extract(' '.join(reference_strings), comparison_strings,
+                                                       limit=len(comparison_strings),
+                                                     scorer = fuzz.token_set_ratio)))[1]) > threshold).any()
+    #Whole-word match
+    comp_words = set(comparison_strings)
+    ref_words = set(reference_strings)
+    common_word_match = len(ref_words.intersection(comp_words)) > 0
+    if match_requirements == 'both':
+        return fuzzy_match and common_word_match
+    elif match_requirements == 'fuzzy':
+        return fuzzy_match
+    elif match_requirements == 'word':
+        return common_word_match
     else:
-        results = min(len(rank[rank['score'] >= threshold]), 5)
-        selection = rank[rank['score'] >= threshold].loc[0:results, :]
-    if selection.empty:
-        return('')
-    return(embedded_data[embedded_data[term_type].apply(lambda x: x.lower() in 
-                                                        [s.lower() for s in selection['field'] if isinstance(s, str)]
-                                                       if isinstance(x, str) else False)])
+        return 0
 
-user = 'katherinewood' #add your username here (same as previous postgreSQL)                      
-host = 'localhost'
-dbname = 'insight'
-db = create_engine('postgres://%s%s/%s'%(user,host,dbname))
-con = None
-con = psycopg2.connect(database = dbname, user = user)
+@st.cache
+def matches_on_field(reference_string, search_set, comparison_column, threshold = 80, match_reqs='both'):
+    if isinstance(reference_string, pd.core.series.Series):
+        reference_string = reference_string.values[0]
+    if pd.isnull(reference_string) or not reference_string:
+        return([])
+    else:
+        mask = search_set[comparison_column].apply(lambda comp_string: fuzzy_match(reference_string.split(' '), 
+                                                                             comp_string, threshold, 
+                                                                                   match_reqs)).astype(bool)
+        matches = search_set[mask.values]                                     
+        return matches
+
+def clean_input(str_input, stemmer):
+    pattern = re.compile('[^a-z]')
+    tokens = []
+    tokens = str_input.split(' ')
+    cleaned_tokens = []
+    for token in tokens:
+        token = token.lower()
+        if not re.match(pattern, token):
+            token = pattern.sub('', token)
+            token = stemmer.stem(token)
+            cleaned_tokens.append(token)
+    return ' '.join(list(set(cleaned_tokens)))
+             
+def find_matching_products(data, product_input, brand_input, model_input, prog_bar, status_message):
+    stemmer = SnowballStemmer("english")
+    data.loc[:, ('Model Name or Number')] = data.loc[:, ('Model Name or Number')].fillna('')
+    data.loc[:, ('clean_model')] = data.loc[:, ('Model Name or Number')].apply(lambda model_string: model_string.strip(' ').split(' '))
+    product = clean_input(product_input, stemmer) if product_input else ''
+    brand = clean_input(brand_input, stemmer) if brand_input else ''
+    model = model_input.lower()
+    prog_bar.progress(5)
+    status_message.text('Searching for related products...')
+    product_pass = matches_on_field(product, data, 'clean_product') if product else data
+    prog_bar.progress(45)
+    status_message.text('Searching for related brands...')
+    brand_pass = matches_on_field(brand, product_pass, 'clean_brand') if brand else product_pass
+    prog_bar.progress(85)
+    status_message.text('Searching for related models...')
+    model_pass = matches_on_field(model, brand_pass, 'clean_model') if model else brand_pass
+    prog_bar.progress(100)
+    status_message.text('Cleaning up...')
+    return model_pass
+
+def format_recall(recalls):
+    display_recall = recalls.loc[:, ('RecallDate', 'Title', 'Description', 'Consumer Contact')]
+    display_recall.columns = ['Date', 'Title', 'Details', 'Contact']
+    return display_recall
 
 st.title('PRecall')
 
@@ -49,67 +101,54 @@ if st.sidebar.button('Find Recall Information'):
     
     prog.progress(0)
     prog_text.text('Seaching database...')
-
-    query = "SELECT * FROM labeled_data"
-    #query_results = pd.read_sql_query(query,con)
-    query_results = pd.read_csv('../labeled_data.csv', encoding="ISO-8859-1", dtype='object')
-    query_results.columns = [c.lower() for c in query_results.columns] #postgres doesn't like capitals or spaces
-    query_results.columns = [c.replace(' ', '_') for c in query_results.columns]
-    query_results.columns = [c.replace('(', '') for c in query_results.columns]
-    query_results.columns = [c.replace(')', '') for c in query_results.columns]
-    sort_key = lambda x: int(x.split('-')[0][6:])
-    embeddings = np.concatenate([np.load('embedding_chunks/'+chunk) for chunk in
-        sorted(os.listdir('embedding_chunks'), key=sort_key)], axis = 0)
-
-    embedded_data = pd.concat([query_results.iloc[range(len(embeddings)), :], pd.DataFrame(embeddings)], axis=1)
-    embedded_data.columns = embedded_data.columns.astype(str)
-
-    prog.progress(5)
-    prog_text.text('Searching for related products...')
-    product_pass = find_search_match(embedded_data, product_input, 'clean_product') if product_input else embedded_data
-    prog.progress(45)
-    prog_text.text('Searching for related brands...')
-    brand_pass = find_search_match(product_pass, brand_input, 'clean_brand') if brand_input else product_pass
-    prog.progress(85)
-    prog_text.text('Searching for related models...')
-    model_pass = find_search_match(brand_pass, model_input, 'model_name_or_number', 100) if model_input else brand_pass
-    prog.progress(100)
-
+    raw_data = pd.read_csv('clean_labeled_data.csv', encoding="ISO-8859-1", dtype='object')
+    embeddings = scipy.sparse.load_npz('tfidf_embeddings.npz')
     logreg_model = pickle.load(open('trained_model.sav', 'rb'))
+    recalls = pd.read_csv('recalls.csv', encoding="ISO-8859-1", dtype='object')
+
+    results = find_matching_products(raw_data, product_input, brand_input, model_input, prog, prog_text)
 
     recall_proba = 0
+    assoc_recall = []
 
-    if len(model_pass) == 0:
+    if len(results) == 0:
         display_complaints = 'Nothing to show.'
     else:
-        if (model_pass['0'].values > 0).sum() < len(model_pass):
-            recall_proba = np.mean(logreg_model.predict_proba(model_pass[[str(i) for i in list(range(1, 769))]])[:, 1])
-        else:
+        if (results['labels'].values.astype(int) > 0).sum() == len(results) and len(set(results['labels'].values)) == 1:
             recall_proba = 1
-            assoc_recall = []
-            if len(set(model_pass['0'].values)) == 1:
-                recall_query = "SELECT * FROM recalls WHERE recallid = %s" % model_pass.iloc[0,:].loc['0'].astype(str)
-                assoc_recall = pd.read_sql_query(recall_query, con)
-                display_recall = assoc_recall.loc[:, ('recalldate', 'title', 'description', 'consumercontact')]
-                display_recall.columns = ['Date', 'Title', 'Details', 'Contact']
+            assoc_recall = format_recall(recalls[recalls['RecallID'] == results.iloc[0].loc['labels']])
+            recall_text = 'This product has been recalled.'
+        elif not (results['labels'].values.astype(int) > 0).any():
+            recall_proba = np.mean(logreg_model.predict_proba(embeddings[results.index, :])[:, 1])
+            recall_text = 'The model estimates the chance of recall at {0:.0f}% for this product.'.format(recall_proba*100)
+        else:
+            pred_proba = logreg_model.predict_proba(embeddings[results.index, :])[:, 1]
+            weighted_proba_v = ((pred_proba + np.array(results['labels'].values.astype(int) > 0, dtype = int)) 
+                / (1 + np.array(results['labels'].values.astype(int) > 0, dtype = int)))
+            weighted_proba = np.mean(weighted_proba_v)
 
-        display_complaints = model_pass.loc[:, ('product_description',   'manufacturer_/_importer_/_private_labeler_name', 'brand', 
-        'model_name_or_number', 'incident_description')]
+            labeled_recalls = results.loc[results['labels'].values.astype(int) > 0, ('labels')]
+
+            assoc_recall = format_recall(recalls[recalls['RecallID'].apply(lambda recallid: recallid in set(labeled_recalls))])
+            recall_text = "This is a tricky one. This product may be associated with these recalls." + \
+            " The model is pretty sure it's likely to be recalled if it hasn't been already, at {0:.0f}% chance.".format(weighted_proba*100)
+
+        display_complaints = results.loc[:, ('Product Description', 'Manufacturer / Importer / Private Labeler Name', 'Brand', 
+        'Model Name or Number', 'Incident Description')]
         display_complaints.columns = ['Product Description', 'Company', 'Brand', 'Model', 'Complaint']
 
     prog.empty()
     prog_text.empty()
 
     st.subheader('Search Results')
-    st.write('Your search yielded %d related complaints.' % len(model_pass))
-    if recall_proba < 1:
-        st.write('The model estimates the chance of recall at {0:.0f}% for this product.'.format(recall_proba*100))
-    else:
-        st.write('This product has been recalled.')
-        if not isinstance(assoc_recall, list):
-            st.subheader('Associated Recall')
-            st.table(display_recall)
+    st.write('Your search yielded %d related complaints.' % len(results))
+    st.subheader('Recall Information')
+    st.write(recall_text)
+    if not isinstance(assoc_recall, list):
+        st.subheader('Associated Recall')
+        st.table(assoc_recall)
 
-    st.subheader('Associated Complaints')
-    st.table(display_complaints)
+    if not isinstance(display_complaints, str):
+        st.subheader('Associated Complaints')
+        st.table(display_complaints)
 
