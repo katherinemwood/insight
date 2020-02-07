@@ -1,13 +1,29 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os, pickle, sklearn, re, psycopg2, scipy
+import os, pickle, sklearn, re, scipy
 from nltk.stem.snowball import SnowballStemmer
 from fuzzywuzzy import fuzz, process
 from sklearn.linear_model import LogisticRegression
-from sqlalchemy import create_engine
-from sqlalchemy_utils import database_exists, create_database
 
+#Given an integer probability between 0 and 100,
+#return a string label for the likelihood.
+def label_probability(prob):
+    if prob >= 0 and prob <= 24:
+        return('very unlikely')
+    elif prob >= 25 and prob <= 49:
+        return ('somewhat unlikely')
+    elif prob >= 50 and prob <= 74:
+        return ('more likely than not')
+    elif prob >= 50 and prob <= 74:
+        return ('likely')
+
+#Compare a reference string to each member of a set of comparison strings by looking for
+#matching words or performing a fuzzy match on the tokens.
+#The threshold for how closely the strings must match for fuzzy matching can be set.
+#Match requriements can be "fuzzy," for token matches only, "word" if a common word must
+#exist between the reference and comparison strings, or "both" if both must be true for
+#a match to be declared.
 def fuzzy_match(reference_strings, comparison_strings, threshold=80, match_requirements='both'):
     #Fuzzy string match
     if isinstance(comparison_strings, str):
@@ -34,6 +50,9 @@ def fuzzy_match(reference_strings, comparison_strings, threshold=80, match_requi
         return 0
 
 @st.cache
+#Given a reference string, a set of data to search through, a column with the relevant field,
+#a match threshold, and match requriements, return a subset of the data where the string was
+#found in the indicated column to the given requirements.
 def matches_on_field(reference_string, search_set, comparison_column, threshold = 80, match_reqs='both'):
     if isinstance(reference_string, pd.core.series.Series):
         reference_string = reference_string.values[0]
@@ -46,10 +65,14 @@ def matches_on_field(reference_string, search_set, comparison_column, threshold 
         matches = search_set[mask.values]                                     
         return matches
 
+#Given a string and a stemmer, strip out non-alphanumeric characters,
+#remove extra whitespace, lower the case, split the string into tokens,
+#and stem each token. If FUSE is true, put the list back into a single
+#whitespace-separated string. Otherwise, return a list of clean tokens.
 def clean_input(str_input, stemmer, fuse=True):
-    pattern = re.compile('[^a-z]')
+    pattern = re.compile('[^a-z0-9]')
     tokens = []
-    tokens = str_input.split(' ')
+    tokens = str_input.strip(' ').split(' ')
     cleaned_tokens = []
     for token in tokens:
         token = token.lower()
@@ -59,6 +82,7 @@ def clean_input(str_input, stemmer, fuse=True):
             cleaned_tokens.append(token)
     return ' '.join(list(set(cleaned_tokens))) if fuse else list(set(cleaned_tokens))
 
+#Given data to search through, a product, and a brand, return related recalls.
 def find_matching_recalls(data, product_input, brand_input):
     stemmer = SnowballStemmer("english")
     data.loc[:, ('Title')] = data.loc[:, ('Title')].fillna('')
@@ -68,7 +92,10 @@ def find_matching_recalls(data, product_input, brand_input):
     product_pass = matches_on_field(product, data, 'clean_title') if product else data
     brand_pass = matches_on_field(brand, product_pass, 'clean_title') if brand else product_pass
     return brand_pass
-             
+
+#Given a set of data, inputs for the product type, brand, and model number, return the related
+#products. Track and report progress with a given progress bar and status message, as this process
+#can take a while.             
 def find_matching_products(data, product_input, brand_input, model_input, prog_bar, status_message):
     stemmer = SnowballStemmer("english")
     data.loc[:, ('Model Name or Number')] = data.loc[:, ('Model Name or Number')].fillna('')
@@ -79,7 +106,7 @@ def find_matching_products(data, product_input, brand_input, model_input, prog_b
     data.loc[:, ('brand')] = data.apply(lambda row: row.loc[('clean_brand')] + row.loc[('brand')].split(' '), axis=1)
     product = clean_input(product_input, stemmer) if product_input else ''
     brand = clean_input(brand_input, stemmer) if brand_input else ''
-    model = model_input.lower()
+    model = model_input.strip(' ').lower()
     prog_bar.progress(5)
     status_message.text('Searching for related products...')
     product_pass = matches_on_field(product, data, 'clean_product') if product else data
@@ -93,11 +120,15 @@ def find_matching_products(data, product_input, brand_input, model_input, prog_b
     status_message.text('Cleaning up...')
     return model_pass
 
+#Given rows from the full recall dataset, return only the relevant columns
+#for display and rename them nicely.
 def format_recall(recalls):
     display_recall = recalls.loc[:, ('RecallDate', 'Title', 'Description', 'ConsumerContact')]
     display_recall.columns = ['Date', 'Title', 'Details', 'Contact']
     return display_recall
 
+#Given rows from the full complaint dataset, return only the relevant columns
+#for display and rename them nicely.
 def format_complaints(complaints):
     display_complaints = complaints.loc[:, ('Product Description', 'Manufacturer / Importer / Private Labeler Name', 'Brand', 
             'Model Name or Number', 'Incident Description')]
@@ -115,12 +146,12 @@ prog_text = st.empty()
 
 inst = st.subheader('Search for a product, a brand, or a specific model number.')
 
+#Once the button is clicked, run the search
 if st.sidebar.button('Find Recall Information'):
     inst.empty()
 
     if not any([product_input, brand_input, model_input]):
         st.write("Please enter at least one search term.")
-
     else:
         prog.progress(0)
         prog_text.text('Seaching database...')
@@ -138,19 +169,17 @@ if st.sidebar.button('Find Recall Information'):
             display_complaints = 'Nothing to show.'
         elif not model_input:
             recall_text = "To get the likelihood of a specific product being recalled, please enter a model name or number."
-
             recalls = find_matching_recalls(recalls, product_input, brand_input)
             assoc_recall = format_recall(recalls)
-            
             display_complaints = format_complaints(results).sort_values(by='Company')
         else:
             if (results['labels'].values.astype(int) > 0).sum() == len(results) and len(set(results['labels'].values)) == 1:
                 recall_proba = 1
                 assoc_recall = format_recall(recalls[recalls['RecallID'] == results.iloc[0].loc['labels']])
-                recall_text = 'This product has been recalled.'
+                recall_text = '<span style="color:red">**This product has been recalled.**</span>'
             elif not (results['labels'].values.astype(int) > 0).any():
                 recall_proba = np.mean(logreg_model.predict_proba(embeddings[results.index, :])[:, 1])
-                recall_text = 'The model estimates the chance of recall at {0:.0f}% for this product.'.format(recall_proba*100)
+                recall_text = 'The model estimates the chance of recall at {0:.0f}% for this product. This product is **{1:s}** to be recalled.'.format(recall_proba*100, label_probability(recall_proba*100))
             else:
                 pred_proba = logreg_model.predict_proba(embeddings[results.index, :])[:, 1]
                 weighted_proba_v = ((pred_proba + np.array(results['labels'].values.astype(int) > 0, dtype = int)) 
@@ -165,14 +194,14 @@ if st.sidebar.button('Find Recall Information'):
 
             display_complaints = format_complaints(results)
 
+        #Display the results
         prog.empty()
         prog_text.empty()
-
         st.subheader('Search Results')
         st.write('Your search yielded %d related complaints.' % len(results))
         if len(results) > 0:
             st.subheader('Recall Information')
-            st.write(recall_text)
+            st.markdown(recall_text, unsafe_allow_html=True)
         if not isinstance(assoc_recall, list):
             st.subheader('Associated Recalls')
             st.table(assoc_recall)
