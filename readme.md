@@ -32,4 +32,4 @@ Users can search for a product type, brand name, and/or model name or number. Re
 `fetch_recall_data.ipynb`: This notebook pulls down the complaint and recall data, formats it, and saves it to .csv.  
 `label_data.ipynb`: This notebook extracts information from unstructured fields and performs the matching between complaints and recalls, then saves the labeled data.  
 `model.ipynb`: This notebook encodes the text from the complaints and trains the logistic regression model, saving out the final result.
-`streamlit_app`: This directory contains the .py script that runs the app, the recall data, the complaint data, the encoded complaint data, and the pickled model.
+`streamlit_app`: This directory contains the .py script that runs the app, the recall data, the complaint data, the encoded complaint data, and the pickled model. It can be run locally with Streamlit.
