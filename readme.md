@@ -2,7 +2,7 @@
 
 PRecall is an application that makes it easier to find consumer complaints and recall notices for products and makes predictions about whether a set of consumer complaints indicate that a product might be recalled.
 
-This repo contains the files for the Streamlit app (streamlit_app/) and the IPython notebooks used to merge the recall and complaint data sets and train the predictive model. The data cleaning and model fitting were done with Python (pandas and scikit-learn), while the app is deployed with [Streamlit](https://www.streamlit.io/). The app is no longer hosted, but may be run locally with Streamlit.
+This repo contains the files for the Streamlit app (streamlit_app/) and the IPython notebooks used to merge the recall and complaint data sets and train the predictive model. The data cleaning and model fitting were done with Python (pandas and scikit-learn), while the app is deployed with [Streamlit](https://www.streamlit.io/). The app is no longer hosted, but may be run locally.
 
 ### Data Sources
 
