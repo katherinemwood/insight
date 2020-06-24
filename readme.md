@@ -14,7 +14,7 @@ PRecall relies on two data sets, both furnished by the [Consumer Product Safety 
 
 2. Both datasets are processed to extract as much information from the unstructured data fields as possible, in addition to the stuctured information. This applies particularly to the database of product recalls, where most of the information needed to identify a product is contained in the unstructured text of the recall announcement.
 
-3. Consumer complaints are paired up to the relevant recall announcement, if it exists, with a series of filtering operations. Complaints and recalls are first matched on likely brands, then on likely products, and finally by searching for common specifiers such as the model number or serial number between the complaint and remaining recall candidates. Complaints for which no recall can be found are labeled as "not recalled."
+3. Consumer complaints are paired up to the relevant recall announcement, if it exists, with a series of filtering operations that rely on both exact string matching and fuzzy string matching based on the Levenshtein distance as implemented by the fuzzywuzzy package. Complaints and recalls are first matched on likely brands, then on likely products, and finally by searching for common specifiers such as the model number or serial number between the complaint and remaining recall candidates. Complaints for which no recall can be found are labeled as "not recalled."
 
 4. Using the NLTK library for Python, the text of the complaints is cleaned and TF-IDF encoded.
 
